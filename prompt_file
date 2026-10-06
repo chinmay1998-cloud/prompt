@@ -1,5 +1,58 @@
 Please update the ingestion logic in this script to add dynamic UTC date-and-hour partitioning when uploading to API Gateway:
+We have updated our AWS API Gateway integration to support UTC date-and-hour partitioning directly into S3.
 
+Context of API Gateway Changes:
+- API Gateway endpoint: POST /venti-event
+- Backend Path Override: grs-zone1-us-landing-development/inbound/venti_json_ingestion/carfax/{partition}/{item}
+- Mapping:
+  - {item} is mapped from context.requestId
+  - {partition} is mapped from the HTTP header: method.request.header.x-partition-path
+
+Task:
+Please review and update our Python ingestion and verification script to integrate with this new partitioned configuration while ensuring bit-for-bit SHA-256 integrity checks pass.
+
+Requirements & Implementation Steps:
+
+1. Imports:
+   Ensure `datetime`, `timezone`, and `hashlib` are imported:
+   from datetime import datetime, timezone
+   import hashlib
+
+2. Partition Header Generation:
+   In the upload function:
+   - Compute the UTC partition string once per upload:
+     partition_path = datetime.now(timezone.utc).strftime("%Y-%m-%d/%H")
+   - Include this in the HTTP headers:
+     headers = {
+         "Content-Type": "application/json",
+         "x-partition-path": partition_path
+     }
+
+3. CRITICAL - Prevent Integrity (SHA-256) Checksum Mismatch:
+   - Do NOT use `requests.post(..., json=payload)` or re-serialize with `json.dumps()` in the HTTP call.
+   - Always send raw bytes: `requests.post(API_URL, data=payload_bytes, headers=headers)`.
+   - Calculate the local SHA-256 hash directly on `payload_bytes`:
+     local_hash = hashlib.sha256(payload_bytes).hexdigest()
+
+4. Response & S3 Key Tracking:
+   - When API Gateway returns HTTP 200/201, extract the request ID:
+     request_id = response.headers.get("x-amzn-RequestId")
+   - Construct the exact S3 key using the SAME `partition_path` used in the request and the exact folder structure:
+     s3_key = f"inbound/venti_json_ingestion/carfax/{partition_path}/{request_id}"
+   - Pass this exact `s3_key` (and `local_hash` or `payload_bytes`) to the validation logic. Do NOT re-calculate `datetime.now()` in a separate validation function, as crossing an hour boundary will lead to a 404/NoSuchKey or hash failure.
+
+5. S3 Verification Logic:
+   - Use Boto3 S3 client to retrieve the object:
+     s3_response = s3_client.get_object(Bucket=BUCKET_NAME, Key=s3_key)
+     s3_bytes = s3_response["Body"].read()
+     s3_hash = hashlib.sha256(s3_bytes).hexdigest()
+   - Compare `local_hash == s3_hash`.
+   - Add diagnostic print statements showing:
+     - Local byte size vs S3 byte size
+     - Local SHA-256 vs S3 SHA-256
+     - The exact S3 key checked
+
+Please refactor our current script following these exact rules, maintaining existing configurations, error handling, and timeout settings.
 1. Import required datetime modules:
    from datetime import datetime, timezone
 
