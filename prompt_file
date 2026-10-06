@@ -1,0 +1,19 @@
+Please update the ingestion logic in this script to add dynamic UTC date-and-hour partitioning when uploading to API Gateway:
+
+1. Import required datetime modules:
+   from datetime import datetime, timezone
+
+2. Update the upload function:
+   - Generate a UTC partition string formatted as 'YYYY-MM-DD/HH':
+     partition_path = datetime.now(timezone.utc).strftime("%Y-%m-%d/%H")
+   - Add this partition string as a custom HTTP header in the requests.post call:
+     "x-partition-path": partition_path
+   - Ensure "Content-Type": "application/json" is kept.
+
+3. Update the post-upload key resolution / verification:
+   - When API Gateway returns a 200/201 response, extract 'x-amzn-RequestId' from response.headers.
+   - Construct the new partitioned S3 object key as:
+     f"inbound/venti-json-ingestion/carfax/{partition_path}/{request_id}"
+   - Use this updated S3 key for any subsequent Boto3 checks, SHA-256 verifications, or return values.
+
+Please preserve the rest of the existing script structure, error handling, and parameters while integrating these changes.
