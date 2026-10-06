@@ -71,5 +71,7 @@ Please refactor our current script following these exact rules, maintaining exis
 
 Please preserve the rest of the existing script structure, error handling, and parameters while integrating these changes.
 
+aws s3 rm s3://grs-zone1-us-landing-development/inbound/venti_json_ingestion/carfax/ --recursive --dryrun
+
 # Query only files uploaded in the current hour
 aws s3 ls s3://grs-zone1-us-landing-development/inbound/venti_json_ingestion/carfax/2026-10-06/15/
