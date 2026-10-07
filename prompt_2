@@ -1,0 +1,30 @@
+Please update the date and hour partition formatting in this script for Case A (single `x-partition-path` header) using UTC time:
+
+Context & Target:
+- S3 folder prefixes must be formatted as single strings combining date and hour: 'YYYY-MM-DD-HH' (e.g., '2026-10-07-08').
+- Time must strictly be UTC (Universal Time), NOT local/IST.
+- API Gateway expects this value in the `x-partition-path` header.
+- Downstream S3 key format: inbound/venti_json_ingestion/carfax/{partition_path}/{request_id}
+
+Required Changes:
+
+1. Timezone & Formatting:
+   - Use standard UTC:
+     from datetime import datetime, timezone
+     now_utc = datetime.now(timezone.utc)
+   - Format the partition string with hyphens:
+     partition_path = now_utc.strftime("%Y-%m-%d-%H")
+
+2. Header & HTTP Call:
+   - Send in request headers:
+     headers = {
+         "Content-Type": "application/json",
+         "x-partition-path": partition_path
+     }
+   - Transmit raw binary payload (`data=payload_bytes`), NOT `json=payload`, to maintain SHA-256 integrity.
+
+3. S3 Key & Validation:
+   - Extract `request_id = response.headers.get("x-amzn-RequestId")`.
+   - Construct the exact S3 key as:
+     s3_key = f"inbound/venti_json_ingestion/carfax/{partition_path}/{request_id}"
+   - Reuse this exact `s3_key` (and `partition_path`) directly in the S3 Boto3 validation check rather than recomputing timestamps.
