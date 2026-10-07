@@ -1,41 +1,46 @@
-Please analyze our Python ingestion and validation script to fix the integrity failure. The API Gateway integration and stage deployment have been verified and tested successfully in the AWS Console.
+Please refactor our Python ingestion and validation script to match our verified AWS API Gateway and S3 architecture:
 
-Context of API Gateway Setup:
-- Path Override: grs-zone1-us-landing-development/inbound/venti_json_ingestion/carfax/{partition}/{shard}/{item}
+Target Architecture Details:
+- S3 Bucket: grs-zone1-us-landing-development
+- Base Prefix: inbound/venti_json_ingestion/carfax/
+- Path Pattern: inbound/venti_json_ingestion/carfax/{partition}/{shard}/{item}
 - Headers mapped in API Gateway:
-  - `x-partition-date`  -> {partition}
-  - `x-partition-shard` -> {shard}
-  - `context.requestId` -> {item}
+  - `x-partition-date` -> mapped to {partition}
+  - `x-partition-shard` -> mapped to {shard}
+  - {item} -> auto-generated `context.requestId`
 
-Please inspect and correct the following 4 common failure points in the code:
+Required Implementation:
 
-1. Request Execution & Byte Integrity:
-   - Ensure `requests.post()` sends raw bytes directly (`data=payload_bytes`), NOT `json=...` and NOT `json.dumps()`.
-   - Calculate `local_sha256 = hashlib.sha256(payload_bytes).hexdigest()` on the exact raw bytes sent over the wire.
+1. Shard Calculation Helper:
+   Implement a function to extract hex characters from the MD5 hash of raw payload bytes:
+   def get_hex_shard(payload_bytes: bytes, hex_len: int = 2) -> str:
+       # hex_len=1 gives 16 buckets ('0' to 'f')
+       # hex_len=2 gives 256 buckets ('00' to 'ff')
+       return hashlib.md5(payload_bytes).hexdigest()[:hex_len]
 
-2. Header Naming & Values:
-   - Ensure headers are passed with exact lowercase keys:
+2. Partition & Header Setup:
+   Inside the upload function:
+   - Calculate current UTC date-hour string in 'YYYY-MM-DD-HH' format:
+     date_partition = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H")
+   - Compute shard prefix (use hex_len=2 for 256 buckets):
+     shard_partition = get_hex_shard(payload_bytes, hex_len=2)
+   - Construct request headers:
      headers = {
          "Content-Type": "application/json",
-         "x-partition-date": partition_val,
-         "x-partition-shard": shard_val
+         "x-partition-date": date_partition,
+         "x-partition-shard": shard_partition
      }
-   - Verify `partition_val` is UTC formatted as '%Y-%m-%d-%H' (e.g. '2026-10-07-09').
-   - Verify `shard_val` is sliced from the MD5 hash of `payload_bytes` (e.g. `hashlib.md5(payload_bytes).hexdigest()[:2]`).
 
-3. S3 Lookup Key Alignment:
-   - Extract the request ID from response headers: `request_id = response.headers.get("x-amzn-RequestId")`.
-   - Ensure the S3 lookup key matches the backend path override:
-     s3_key = f"inbound/venti_json_ingestion/carfax/{partition_val}/{shard_val}/{request_id}"
-   - Re-use the exact `partition_val` and `shard_val` computed during upload rather than recalculating them later.
+3. Integrity & Upload:
+   - Compute local SHA-256 directly on the raw bytes:
+     local_sha256 = hashlib.sha256(payload_bytes).hexdigest()
+   - Send raw bytes using `data=payload_bytes` (never `json=...` to avoid re-serialization differences):
+     response = requests.post(API_URL, data=payload_bytes, headers=headers)
+     response.raise_for_status()
 
-4. Status Code & Error Handling:
-   - Check `if response.status_code not in (200, 201):` and raise an explicit error containing `response.text`.
-   - Ensure the script is not reading and hashing an S3 error body or HTTP error response.
-   - When fetching via Boto3, calculate `s3_sha256 = hashlib.sha256(s3_obj['Body'].read()).hexdigest()` and assert `local_sha256 == s3_sha256`.
-
-Add verbose logging if a mismatch occurs showing:
-- HTTP status code
-- Local byte length vs. S3 byte length
-- Local hash vs. S3 hash
-- Queried S3 Key
+4. S3 Object Key Resolution & Verification:
+   - Extract the request ID from response headers:
+     request_id = response.headers.get("x-amzn-RequestId")
+   - Construct the exact S3 object key:
+     s3_key = f"inbound/venti_json_ingestion/carfax/{date_partition}/{shard_partition}/{request_id}"
+   - Retrieve the object from S3 using Boto3 at `s3_key`, compute SHA-256 on the downloaded body bytes, and assert that it matches `local_sha256`.
