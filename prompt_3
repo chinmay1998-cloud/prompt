@@ -1,40 +1,49 @@
-Please complete and update our Python ingestion and validation script to use hex-character hash slicing for S3 prefix sharding:
+Please update the partition and sharding logic in our Python ingestion and validation script to match our current API Gateway setup using `{partition}`:
 
 Context of API Gateway Configuration:
-- Path Override:
-  grs-zone1-us-landing-development/inbound/venti_json_ingestion/carfax/{date_hour}/{shard}/{item}
-- Headers mapped in API Gateway:
-  - `x-partition-date` -> {date_hour}
-  - `x-partition-shard` -> {shard}
-  - {item} is automatically mapped from context.requestId
+- Backend Path Override:
+  grs-zone1-us-landing-development/inbound/venti_json_ingestion/carfax/{partition}/{shard}/{item}
+- URL Path Parameter Mappings:
+  - {item}      -> context.requestId
+  - {partition} -> method.request.header.x-partition-date
+  - {shard}     -> method.request.header.x-partition-shard
 
 Requirements:
 
-1. Hex Sharding Helper:
-   Implement a function to slice the first N hex characters from the payload MD5 hash:
+1. Imports:
+   Ensure hashlib, datetime, and timezone are available:
+   from datetime import datetime, timezone
+   import hashlib
+
+2. Hex Sharding Function:
+   Implement a helper to slice hex characters from the MD5 hash:
    def get_hex_shard(payload_bytes: bytes, hex_len: int = 2) -> str:
        # hex_len=1 gives 16 buckets ('0' to 'f')
        # hex_len=2 gives 256 buckets ('00' to 'ff')
        return hashlib.md5(payload_bytes).hexdigest()[:hex_len]
 
-2. Upload Function:
-   - Compute current UTC date-hour:
-     from datetime import datetime, timezone
-     date_hour = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H")
-   - Compute hex shard (set hex_len=2 for 256 subfolders, or configure as needed):
-     shard = get_hex_shard(payload_bytes, hex_len=2)
-   - Send headers without any forward slashes:
+3. Partition and Shard Generation:
+   In the upload function:
+   - Compute the UTC date-hour string for {partition} in 'YYYY-MM-DD-HH' format:
+     partition_val = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H")
+   - Compute the hex shard string (e.g., hex_len=2 for 256 subfolders):
+     shard_val = get_hex_shard(payload_bytes, hex_len=2)
+   - Set request headers matching API Gateway URL Path Parameter mappings:
      headers = {
          "Content-Type": "application/json",
-         "x-partition-date": date_hour,
-         "x-partition-shard": shard
+         "x-partition-date": partition_val,
+         "x-partition-shard": shard_val
      }
-   - Upload raw bytes directly:
-     response = requests.post(API_URL, data=payload_bytes, headers=headers)
-     (Do NOT use `json=payload` or `json.dumps()` to avoid SHA-256 integrity issues).
 
-3. S3 Key Construction & SHA-256 Validation:
+4. Raw Binary Upload:
+   - Calculate SHA-256 locally on raw bytes:
+     local_sha256 = hashlib.sha256(payload_bytes).hexdigest()
+   - Send raw bytes:
+     response = requests.post(API_URL, data=payload_bytes, headers=headers)
+     (Do NOT use json=payload or json.dumps() to avoid re-serialization and checksum mismatch).
+
+5. S3 Key Path & Validation:
    - Extract request_id = response.headers.get("x-amzn-RequestId").
    - Construct the exact S3 key as:
-     s3_key = f"inbound/venti_json_ingestion/carfax/{date_hour}/{shard}/{request_id}"
-   - Use this exact `s3_key` to fetch the object via Boto3 and verify that the SHA-256 hash of the downloaded bytes matches `hashlib.sha256(payload_bytes).hexdigest()`.
+     s3_key = f"inbound/venti_json_ingestion/carfax/{partition_val}/{shard_val}/{request_id}"
+   - Fetch the object from S3 using Boto3 with this exact `s3_key` and confirm its SHA-256 matches `local_sha256`.
