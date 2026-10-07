@@ -1,0 +1,6 @@
+Content-Type:application/json
+x-partition-date:2026-10-07-08
+x-partition-shard:3f
+
+
+{"test_id": "console_verification_01", "status": "ok"}
