@@ -1,49 +1,41 @@
-Please update the partition and sharding logic in our Python ingestion and validation script to match our current API Gateway setup using `{partition}`:
+Please analyze our Python ingestion and validation script to fix the integrity failure. The API Gateway integration and stage deployment have been verified and tested successfully in the AWS Console.
 
-Context of API Gateway Configuration:
-- Backend Path Override:
-  grs-zone1-us-landing-development/inbound/venti_json_ingestion/carfax/{partition}/{shard}/{item}
-- URL Path Parameter Mappings:
-  - {item}      -> context.requestId
-  - {partition} -> method.request.header.x-partition-date
-  - {shard}     -> method.request.header.x-partition-shard
+Context of API Gateway Setup:
+- Path Override: grs-zone1-us-landing-development/inbound/venti_json_ingestion/carfax/{partition}/{shard}/{item}
+- Headers mapped in API Gateway:
+  - `x-partition-date`  -> {partition}
+  - `x-partition-shard` -> {shard}
+  - `context.requestId` -> {item}
 
-Requirements:
+Please inspect and correct the following 4 common failure points in the code:
 
-1. Imports:
-   Ensure hashlib, datetime, and timezone are available:
-   from datetime import datetime, timezone
-   import hashlib
+1. Request Execution & Byte Integrity:
+   - Ensure `requests.post()` sends raw bytes directly (`data=payload_bytes`), NOT `json=...` and NOT `json.dumps()`.
+   - Calculate `local_sha256 = hashlib.sha256(payload_bytes).hexdigest()` on the exact raw bytes sent over the wire.
 
-2. Hex Sharding Function:
-   Implement a helper to slice hex characters from the MD5 hash:
-   def get_hex_shard(payload_bytes: bytes, hex_len: int = 2) -> str:
-       # hex_len=1 gives 16 buckets ('0' to 'f')
-       # hex_len=2 gives 256 buckets ('00' to 'ff')
-       return hashlib.md5(payload_bytes).hexdigest()[:hex_len]
-
-3. Partition and Shard Generation:
-   In the upload function:
-   - Compute the UTC date-hour string for {partition} in 'YYYY-MM-DD-HH' format:
-     partition_val = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H")
-   - Compute the hex shard string (e.g., hex_len=2 for 256 subfolders):
-     shard_val = get_hex_shard(payload_bytes, hex_len=2)
-   - Set request headers matching API Gateway URL Path Parameter mappings:
+2. Header Naming & Values:
+   - Ensure headers are passed with exact lowercase keys:
      headers = {
          "Content-Type": "application/json",
          "x-partition-date": partition_val,
          "x-partition-shard": shard_val
      }
+   - Verify `partition_val` is UTC formatted as '%Y-%m-%d-%H' (e.g. '2026-10-07-09').
+   - Verify `shard_val` is sliced from the MD5 hash of `payload_bytes` (e.g. `hashlib.md5(payload_bytes).hexdigest()[:2]`).
 
-4. Raw Binary Upload:
-   - Calculate SHA-256 locally on raw bytes:
-     local_sha256 = hashlib.sha256(payload_bytes).hexdigest()
-   - Send raw bytes:
-     response = requests.post(API_URL, data=payload_bytes, headers=headers)
-     (Do NOT use json=payload or json.dumps() to avoid re-serialization and checksum mismatch).
-
-5. S3 Key Path & Validation:
-   - Extract request_id = response.headers.get("x-amzn-RequestId").
-   - Construct the exact S3 key as:
+3. S3 Lookup Key Alignment:
+   - Extract the request ID from response headers: `request_id = response.headers.get("x-amzn-RequestId")`.
+   - Ensure the S3 lookup key matches the backend path override:
      s3_key = f"inbound/venti_json_ingestion/carfax/{partition_val}/{shard_val}/{request_id}"
-   - Fetch the object from S3 using Boto3 with this exact `s3_key` and confirm its SHA-256 matches `local_sha256`.
+   - Re-use the exact `partition_val` and `shard_val` computed during upload rather than recalculating them later.
+
+4. Status Code & Error Handling:
+   - Check `if response.status_code not in (200, 201):` and raise an explicit error containing `response.text`.
+   - Ensure the script is not reading and hashing an S3 error body or HTTP error response.
+   - When fetching via Boto3, calculate `s3_sha256 = hashlib.sha256(s3_obj['Body'].read()).hexdigest()` and assert `local_sha256 == s3_sha256`.
+
+Add verbose logging if a mismatch occurs showing:
+- HTTP status code
+- Local byte length vs. S3 byte length
+- Local hash vs. S3 hash
+- Queried S3 Key
