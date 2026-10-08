@@ -1,0 +1,40 @@
+I am a complete beginner to AWS, and I need a step-by-step, plain-English guide from scratch.
+
+Context & Problem:
+We have an ingestion pipeline where a Python script sends raw JSON files to Amazon API Gateway, and API Gateway directly uploads them to an Amazon S3 bucket.
+We recently changed our S3 bucket name. 
+
+Our current architecture setup was:
+- Old S3 Bucket: grs-zone1-us-landing-development
+- Base Prefix: inbound/venti_json_ingestion/carfax/
+- Partitioning & Sharding: S3 key format is `{partition}/{shard}/{item}`
+  - {partition} maps to HTTP header `x-partition-date` (formatted as UTC 'YYYY-MM-DD-HH')
+  - {shard} maps to HTTP header `x-partition-shard` (2-char hex MD5 shard, e.g. '3f')
+  - {item} maps to `context.requestId` (API Gateway auto-generated UUID)
+- Local Python script: Sends raw binary bytes to the API Gateway endpoint and uses Boto3 (AWS SDK for Python) to verify the uploaded file via SHA-256 checksum against S3.
+
+Please guide me thoroughly from scratch as if I have never used AWS before:
+
+1. EXACT CHECKLIST OF WHERE TO CHANGE THE S3 BUCKET NAME:
+   - Identify every place in AWS and in our code where the bucket name must be replaced.
+   - Explain how to update:
+     a) API Gateway Console: Integration Request -> Path Override.
+     b) IAM Permissions: The Execution Role policy used by API Gateway (e.g., s3:PutObject permissions).
+     c) S3 Bucket Policies / Permissions Boundaries: For read-back validation (s3:GetObject).
+     d) Python Script: Any bucket name variables, Boto3 clients, and S3 verification URLs.
+
+2. CLICK-BY-CLICK CONSOLE WALKTHROUGH:
+   - Walk me through the AWS Management Console step-by-step with exact menu names and button clicks:
+     - How to open API Gateway, find the POST method, edit the Path Override, and critically, how to click "Deploy API" so changes take effect.
+     - How to find the IAM Role attached to API Gateway and edit the policy JSON to allow writing to the new bucket ARN.
+     - How to verify or update IAM read permissions so the local Python validator doesn't throw AccessDenied (403).
+
+3. PYTHON SCRIPT UPDATES:
+   - Provide the complete, clean Python script template showing where to plug in the new bucket name, API Gateway URL, headers, raw binary upload logic, and Boto3 SHA-256 verification.
+
+4. STEP-BY-STEP VERIFICATION & TROUBLESHOOTING:
+   - How to test the POST method inside the API Gateway console using the "Test" lightning bolt tab.
+   - What success logs look like vs. common errors (e.g., 403 Access Denied, 404 NoSuchBucket, Signature Mismatch).
+   - How to view the written files in the S3 Console to confirm the new folders and shards were created correctly.
+
+Please explain any AWS jargon simply (e.g., explain what an ARN, IAM Role, and Prefix mean when you mention them).
