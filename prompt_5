@@ -1,36 +1,31 @@
-Please refactor our Python ingestion script to generate and upload JSON payloads matching the new format provided below, while preserving our existing API Gateway headers, sharding logic, and SHA-256 byte-level integrity verification.
+Please refactor our Python ingestion and validation script with the following architectural and payload changes:
 
-Context & Existing Pipeline:
-- API Gateway Endpoint: Direct S3 ingestion via REST API POST method
-- Headers sent:
-  - `Content-Type`: "application/json"
-  - `x-partition-date`: UTC date-hour formatted as 'YYYY-MM-DD-HH'
-  - `x-partition-shard`: 2-char hex MD5 shard (00 to ff, 256 buckets)
-- Downstream S3 Key:
-  {base_prefix}/{x-partition-date}/{x-partition-shard}/{requestId}
+1. ARCHITECTURAL CHANGES (REMOVAL OF SHARDING & S3 PATH UPDATE):
+   - We have removed sharding from API Gateway.
+   - Do NOT calculate or pass `x-partition-shard` anymore.
+   - Remove any shard helper functions (e.g., `get_hex_shard`, MD5 slicing, or modulo logic).
+   - Only pass the date-hour partition header:
+     - Header: `x-partition-date` (or the exact date header currently mapped in API Gateway)
+     - Format: UTC 'YYYY-MM-DD-HH'
+       from datetime import datetime, timezone
+       partition_val = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H")
+   - Update target S3 key construction for verification to exclude the shard folder:
+     s3_key = f"inbound/venti_json_ingestion/carfax/{partition_val}/{request_id}"
+     (Or update bucket name and prefix variables to match our new target bucket).
 
-Required Changes:
+2. NEW JSON PAYLOAD STRUCTURE:
+   - Please adapt the script to construct the payload matching the new format provided below.
+   - CRITICAL FOR DATA INTEGRITY:
+     - Serialize the new JSON structure to raw UTF-8 bytes ONCE:
+       payload_bytes = json.dumps(new_data, separators=(',', ':')).encode('utf-8')
+     - Calculate local SHA-256 directly on `payload_bytes`:
+       local_sha256 = hashlib.sha256(payload_bytes).hexdigest()
+     - Send `data=payload_bytes` in `requests.post()` (NEVER use `json=new_data` to prevent re-serialization checksum mismatches).
 
-1. Payload Construction:
-   - Update the payload creation logic to construct JSON conforming strictly to the new schema/format provided below.
-   - Encode the dictionary/object directly to UTF-8 raw bytes:
-     `payload_bytes = json.dumps(new_payload_data, separators=(',', ':')).encode('utf-8')`
-     (Use compact separators to eliminate ambiguous whitespace).
+3. DOWNSTREAM VERIFICATION:
+   - Extract `request_id = response.headers.get("x-amzn-RequestId")`.
+   - Download the object from S3 using Boto3 at `s3_key`.
+   - Compute SHA-256 on the downloaded bytes and verify it matches `local_sha256`.
 
-2. Shard & Partition Calculation:
-   - Compute the UTC date-hour partition string:
-     `date_partition = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H")`
-   - Compute the deterministic 2-char hex shard directly from the raw encoded bytes:
-     `shard_partition = hashlib.md5(payload_bytes).hexdigest()[:2]`
-
-3. Raw Binary Dispatch (Do Not Re-serialize):
-   - Calculate the local SHA-256 checksum on `payload_bytes`:
-     `local_sha256 = hashlib.sha256(payload_bytes).hexdigest()`
-   - Send the request using `data=payload_bytes` (DO NOT use `json=...`):
-     ```python
-     headers = {
-         "Content-Type": "application/json",
-         "x-partition-date": date_partition,
-         "x-partition-shard": shard_partition,
-     }
-     response = requests.post(API_URL, data=payload_bytes, headers=headers)
+---
+[ATTACH / PASTE YOUR NEW JSON FORMAT HERE]
