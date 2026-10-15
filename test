@@ -1,6 +1,17 @@
 Content-Type:application/json
-x-partition-date:2026-10-07-08
+x-partition-date:2026-10-15-05
 x-partition-shard:3f
 
 
-{"test_id": "console_verification_01", "status": "ok"}
+
+{
+  "test_id": "cloudwatch_verification_01",
+  "source": "api_gateway_console_test",
+  "status": "active",
+  "timestamp": "2026-10-15T05:30:00Z",
+  "data": {
+    "vin": "1HGCR2F83HA000000",
+    "event_type": "odometer_reading",
+    "value": 45210
+  }
+}
