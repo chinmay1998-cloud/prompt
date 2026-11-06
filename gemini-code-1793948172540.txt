@@ -1,0 +1,12 @@
+#set($context.requestOverride.header.X-Amz-Target = "AWSEvents.PutEvents")
+#set($context.requestOverride.header.Content-Type = "application/x-amz-json-1.1")
+{
+  "Entries": [
+    {
+      "Source": "moodys.public.ingestion",
+      "DetailType": "MoodysPublicInboundEvent",
+      "Detail": "$util.escapeJavaScript($input.body)",
+      "EventBusName": "grsdiai-hydration-moodys-public-ingestion-bus"
+    }
+  ]
+}
