@@ -6,6 +6,7 @@ Amazon S3 acts as the ultimate durable storage layer for all incoming Carfax eve
 2. **Quarantine Error Lake (`carfax_error/`):** Stores complete audit payloads for structurally invalid or contract-violating records, encapsulating the raw input, root-cause error, and stack trace.
 
 ---
+[MAster Prompt](MAster Prompt)
 
 ## 2. Bucket & Partitioning Hierarchy
 
