@@ -2,7 +2,7 @@
 
 ## 1. Overview & Purpose
 The `grsdiai-hydration-lambda-carfax-s3-ingestion-worker` function executes the core parsing, contract validation, and durable storage logic for the Carfax pipeline. It consumes batches from the SQS FIFO queue, verifies the payload structure against business invariants, writes clean records to `carfax/`, and diverts malformed records to `carfax_error/`.
-
+[lambda_documentation.md](lambda_documentation.md)
 ---
 
 ## 2. Function Configuration Details
